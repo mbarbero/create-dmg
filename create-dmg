@@ -125,7 +125,7 @@ DMG_PATH="$1"
 DMG_DIRNAME="$(dirname "$DMG_PATH")"
 DMG_DIR="$(cd "$DMG_DIRNAME" > /dev/null; pwd)"
 DMG_NAME="$(basename "$DMG_PATH")"
-DMG_TEMP_NAME="$DMG_DIR/rw.${DMG_NAME}"
+DMG_TEMP_NAME="$DMG_DIR/rw.$$.${DMG_NAME}"
 SRC_FOLDER="$(cd "$2" > /dev/null; pwd)"
 test -z "$VOLUME_NAME" && VOLUME_NAME="$(basename "$DMG_PATH" .dmg)"
 
@@ -145,12 +145,11 @@ fi
 echo "Creating disk image..."
 test -f "${DMG_TEMP_NAME}" && rm -f "${DMG_TEMP_NAME}"
 ACTUAL_SIZE=`du -sm "$SRC_FOLDER" | sed -e 's/	.*//g'`
-DISK_IMAGE_SIZE=$(expr $ACTUAL_SIZE + 20)
+DISK_IMAGE_SIZE=$(expr $ACTUAL_SIZE + 80)
 hdiutil create -srcfolder "$SRC_FOLDER" -volname "${VOLUME_NAME}" -fs HFS+ -fsargs "-c c=64,a=16,e=16" -format UDRW -size ${DISK_IMAGE_SIZE}m "${DMG_TEMP_NAME}"
 
 # mount it
 echo "Mounting disk image..."
-MOUNT_DIR="/Volumes/${VOLUME_NAME}"
 
 # try unmount dmg if it was mounted previously (e.g. developer mounted dmg, installed app and forgot to unmount it)
 echo "Unmounting disk image..."
@@ -158,8 +157,10 @@ DEV_NAME=$(hdiutil info | egrep '^/dev/' | sed 1q | awk '{print $1}')
 test -d "${MOUNT_DIR}" && hdiutil detach "${DEV_NAME}"
 
 echo "Mount directory: $MOUNT_DIR"
-DEV_NAME=$(hdiutil attach -readwrite -noverify -noautoopen "${DMG_TEMP_NAME}" | egrep '^/dev/' | sed 1q | awk '{print $1}')
+DEV_NAME=$(hdiutil attach -mountrandom /Volumes -readwrite -noverify -noautoopen -nobrowse "${DMG_TEMP_NAME}" | egrep '^/dev/' | sed 1q | awk '{print $1}')
 echo "Device name:     $DEV_NAME"
+MOUNT_DIR=$(hdiutil info | grep "${DEV_NAME}s"|head -1|awk '{print $3}')
+echo "Mount dir:       $MOUNT_DIR"
 
 if ! test -z "$BACKGROUND_FILE"; then
   echo "Copying background file..."
@@ -179,12 +180,14 @@ if ! test -z "$VOLUME_ICON_FILE"; then
   SetFile -c icnC "$MOUNT_DIR/.VolumeIcon.icns"
 fi
 
+VOLUME_NAME=$(basename $MOUNT_DIR)
+
 # run applescript
 APPLESCRIPT=$(mktemp -t createdmg)
 cat "$AUX_PATH/template.applescript" | sed -e "s/WINX/$WINX/g" -e "s/WINY/$WINY/g" -e "s/WINW/$WINW/g" -e "s/WINH/$WINH/g" -e "s/BACKGROUND_CLAUSE/$BACKGROUND_CLAUSE/g" -e "s/REPOSITION_HIDDEN_FILES_CLAUSE/$REPOSITION_HIDDEN_FILES_CLAUSE/g" -e "s/ICON_SIZE/$ICON_SIZE/g" -e "s/TEXT_SIZE/$TEXT_SIZE/g" | perl -pe  "s/POSITION_CLAUSE/$POSITION_CLAUSE/g" | perl -pe "s/APPLICATION_CLAUSE/$APPLICATION_CLAUSE/g" | perl -pe "s/HIDING_CLAUSE/$HIDING_CLAUSE/" >"$APPLESCRIPT"
 
 echo "Running Applescript: /usr/bin/osascript \"${APPLESCRIPT}\" \"${VOLUME_NAME}\""
-"/usr/bin/osascript" "${APPLESCRIPT}" "${VOLUME_NAME}" || true
+#"/usr/bin/osascript" "${APPLESCRIPT}" "${VOLUME_NAME}" 
 echo "Done running the applescript..."
 sleep 4
 
